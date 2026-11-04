@@ -1,6 +1,6 @@
-# GRG-4361 FQC Test Tool V1.0
+# GRG-4361 FQC Test Tool V1.0.2
 
-English Windows GUI, read-only inspection of a GRG-4361 router using the same HTTP login and Session implementation introduced in Router Label Verification Tool V1.0.12.
+English Windows GUI, read-only inspection of a GRG-4361 router using the same HTTP login and Session implementation introduced in Router Label Verification Tool V1.0.2.12.
 
 ## Intended environment
 - Build: GitHub Actions / Python 3.11 / Windows runner
@@ -13,7 +13,7 @@ English Windows GUI, read-only inspection of a GRG-4361 router using the same HT
 3. Read `gpon.asp` for GPON SN.
 4. Read `status_pon.asp` for PON optical values and ONU State.
 5. Compare model, MAC format, GPON SN = `CMTD` + MAC last 8 hexadecimal digits, and WAN entries to the project-approved candidate profile.
-6. Save Excel, JSON, `execution.log`, `test.log`, `debug.log` for each run in `Documents/GRG-4361_FQC_Records/<timestamp>`.
+6. Save Excel, JSON, `execution.log`, `test.log`, `debug.log` for each run in `<EXE Folder>/Records/<timestamp>`.
 
 ## Limitations and interpretation
 - No configuration writes, restore, reboot, upgrade or OLT management are implemented.
@@ -28,9 +28,14 @@ English Windows GUI, read-only inspection of a GRG-4361 router using the same HT
 ## Build from GitHub
 1. Upload only the contents of the Clean GitHub Upload ZIP to the root of a GitHub repository (including `.github/workflows`).
 2. Run `Actions > GRG-4361 FQC Windows Build > Run workflow`.
-3. After the job succeeds, download the `GRG-4361-FQC-V1.0` artifact.
+3. After the job succeeds, download the `GRG-4361-FQC-V1.0.2` artifact.
 4. Extract, start EXE, enter router IP / username / password / DUT SN / approved FW, press `START READ-ONLY CHECK`.
-5. After completion, inspect `Documents/GRG-4361_FQC_Records` and provide the sanitized logs when troubleshooting.
+5. After completion, inspect `<EXE Folder>/Records` and provide the sanitized logs when troubleshooting.
 
 ## Confidentiality
 Do not share password, authentication cookies, CSRF tokens, raw HAR/cURL or personally identifying shipping data. The tool does not intentionally store login password, raw HTTP pages or cookies.
+
+## Log access (V1.0.2)
+After running a check, click **OPEN LAST RUN LOGS** to open the exact run folder. **OPEN RECORDS** opens the parent folder.
+On a successfully completed inspection, the run folder contains `execution.log`, `debug.log`, `test.log`, `result.json`, and `FQC_Result.xlsx`. A run ending with a technical error writes `execution.log`, `debug.log`, and `test.log`; not all results may be available.
+The app remains read-only; no web setting changes, resets, or OLT commands.
