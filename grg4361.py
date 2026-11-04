@@ -22,7 +22,11 @@ def get_rows(html):
 def parse_device(html):
     from router_oqc.parser import _extract_wan_by_rows, _extract_wan_fallback
     soup=BeautifulSoup(html,'html.parser'); fields=get_rows(html)
-    wan=_extract_wan_by_rows(soup) or _extract_wan_fallback(html)
+    row_wan=_extract_wan_by_rows(soup)
+    fallback_wan=_extract_wan_fallback(html)
+    # Router's malformed table can omit <tr> for the middle WAN entry.
+    # Prefer the more complete source-order extraction, not the first nonempty result.
+    wan=max((row_wan, fallback_wan), key=lambda records: len({r.get('Interface') for r in records}))
     required=['Device Name','Firmware Version','MAC Address']
     missing=[k for k in required if not fields.get(k)]
     if missing: raise ValueError('Missing device fields: '+','.join(missing))
@@ -75,7 +79,13 @@ class Inspector:
             if response.status_code!=200 or 'Device Login' in response.text:
                 raise RouterError('READ_FAILED','Not authenticated or HTTP error: '+path)
             return response.text
+        if self.client.debug: self.client.debug('HTTP read status.asp START')
         device=parse_device(read('status.asp'))
+        if self.client.debug: self.client.debug('HTTP read status.asp OK; WAN interfaces: '+','.join(r.get('Interface','') for r in device['wan']))
+        if self.client.debug: self.client.debug('HTTP read gpon.asp START')
         gpon=parse_gpon(read('gpon.asp'))
+        if self.client.debug: self.client.debug('HTTP read gpon.asp OK')
+        if self.client.debug: self.client.debug('HTTP read status_pon.asp START')
         pon=parse_pon(read('status_pon.asp'))
+        if self.client.debug: self.client.debug('HTTP read status_pon.asp OK')
         return (*assess(device,gpon,pon,sn,expected_firmware),{'device':device,'gpon':gpon,'pon':pon})
