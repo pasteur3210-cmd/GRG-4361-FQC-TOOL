@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 from router_oqc.client import RouterClient, RouterError
 
-VERSION = 'V1.0.5'
+VERSION = 'V1.0.6'
 TX_MIN_DBM = 6.8
 TX_MAX_DBM = 7.2
 WAN_GOLDEN = {
@@ -56,19 +56,22 @@ def check_tx_power(reading):
     number=float(m.group(1))
     return 'PASS' if TX_MIN_DBM <= number <= TX_MAX_DBM else 'FAIL'
 
-def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS'):
+def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',range_config=None,duplicate_result=None):
     scans=scans or {};rows=[]
     def add(name,expected,actual,result):rows.append({'item':name,'expected':expected,'actual':actual,'result':result})
     add('LED Initial','Visual LED inspection','Operator: '+led_initial,led_initial)
-    add('LED Functional','Phone off-hook / PON green after O5','Operator: '+led_functional,led_functional)
+    add('LED Functional','Phone green blink / PON green solid / Power blue solid at O5','Operator: '+led_functional,led_functional)
     add('Model','GRG-4361',device['model'],'PASS' if device['model']=='GRG-4361' else 'FAIL')
     add('Firmware',expected_firmware or 'Not approved',device['firmware'],('PASS' if device['firmware']==expected_firmware else 'FAIL') if expected_firmware else 'REVIEW')
     sn=scans.get('sn','').strip()
     add('Label SN Format','20 characters',sn or 'Missing','PASS' if len(sn)==20 else 'FAIL')
-    add('SN Range','Approved shipment range not supplied',sn or 'Missing','REVIEW')
+    from range_check import check_sn, check_mac
+    add('SN Range', 'Approved SN start/end' if range_config else 'Approved SN range missing', sn or 'Missing', check_sn(sn,range_config))
     mac=device['mac']; label_mac=normalize_mac(scans.get('mac',''))
     add('DUT MAC Format','12 hexadecimal characters',mac,'PASS' if re.fullmatch('[0-9A-F]{12}',mac) else 'FAIL')
     add('Label MAC vs DUT MAC',mac,label_mac or 'Missing','PASS' if label_mac==mac and bool(label_mac) else 'FAIL')
+    add('MAC Allocation Range', 'Approved MAC range / 4 MAC per DUT' if range_config else 'Approved MAC range missing',label_mac or 'Missing',check_mac(label_mac,range_config))
+    if duplicate_result is not None:add('Identity Duplicate Check','No conflicting SN/MAC history',duplicate_result,duplicate_result)
     label_gpon=normalize_gpon(scans.get('gpon',''))
     add('Label GPON SN vs DUT GPON SN',gpon,label_gpon or 'Missing','PASS' if label_gpon==gpon and bool(label_gpon) else 'FAIL')
     expected_gpon='CMTD'+mac[-8:] if len(mac)==12 else 'Unavailable'
@@ -105,7 +108,7 @@ class Inspector:
             raise RouterError('READ_FAILED','Not authenticated or HTTP error: '+path)
         return response.text
     def run(self,username,password,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',
-            o5_timeout=10,poll_interval=1):
+            o5_timeout=10,poll_interval=1,range_config=None,duplicate_result=None):
         self.client.login(username,password)
         if self.client.debug:self.client.debug('HTTP read status.asp START')
         device=parse_device(self.read('status.asp'))
@@ -124,5 +127,5 @@ class Inspector:
                     self.client.debug('O5 TIMEOUT after %s seconds; last state=%s; remaining automatic PON checks skipped' % (o5_timeout,pon['ONU State']))
                 break
             time.sleep(min(poll_interval,max(0,deadline-time.monotonic())))
-        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional)
+        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional,range_config,duplicate_result)
         return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'label_scans':scans or {},'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}

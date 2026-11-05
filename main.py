@@ -14,8 +14,11 @@ from tkinter import ttk, messagebox
 from grg4361 import Inspector
 from openpyxl import Workbook
 from master_record import sync_master, MASTER_NAME
+from range_check import CONFIG_NAME, load_range, validate_config, check_duplicate
+from credential_store import get_password, set_password
+from tkinter import simpledialog
 
-APP='GRG-4361 FQC Test Tool V1.0.5'
+APP='GRG-4361 FQC Test Tool V1.0.6'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -42,7 +45,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.5',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.6',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
@@ -52,9 +55,9 @@ class App:
     def __init__(self,root):
         self.root=root;root.title(APP);root.geometry('1240x810');root.minsize(840,540)
         self.q=queue.Queue();self.host=tk.StringVar(value='192.168.1.1');self.user=tk.StringVar(value='root')
-        self.pw=tk.StringVar();self.sn=tk.StringVar();self.label_mac=tk.StringVar();self.label_gpon=tk.StringVar();self.fw=tk.StringVar();self.operator=tk.StringVar();self.status=tk.StringVar(value='READY FOR SCAN')
+        self.sn=tk.StringVar();self.label_mac=tk.StringVar();self.label_gpon=tk.StringVar();self.fw=tk.StringVar();self.operator=tk.StringVar();self.status=tk.StringVar(value='READY FOR SCAN')
         top=ttk.Frame(root,padding=12);top.pack(fill='x')
-        for label,var,width in [('Router IP',self.host,18),('Username',self.user,16),('Password',self.pw,18),('Approved FW',self.fw,18),('Operator',self.operator,13)]:
+        for label,var,width in [('Router IP',self.host,18),('Approved FW',self.fw,18),('Operator',self.operator,13)]:
             cell=ttk.Frame(top);cell.pack(side='left',padx=4)
             ttk.Label(cell,text=label).pack(anchor='w')
             ttk.Entry(cell,textvariable=var,width=width,show='*' if label=='Password' else '').pack()
@@ -82,6 +85,8 @@ class App:
         tools.add_command(label='Open Last Run Logs',command=self.open_last_logs)
         tools.add_command(label='Open Master',command=self.open_master)
         tools.add_command(label='Sync Master',command=self.sync_master_manual)
+        tools.add_command(label='Production Range Settings',command=self.range_settings)
+        tools.add_command(label='Set Router Credential',command=self.set_router_credential)
         menu.add_cascade(label='Maintenance',menu=tools);root.configure(menu=menu)
         columns=('item','expected','actual','result')
         area=ttk.Frame(root,padding=12);area.pack(fill='both',expand=True)
@@ -118,6 +123,35 @@ class App:
             try:self.q.put(('sync',str(sync_master(ROOT)),[],str(ROOT)))
             except Exception as exc:self.q.put(('sync_error',str(exc),[],str(ROOT)))
         threading.Thread(target=job,daemon=True).start()
+    def set_router_credential(self):
+        password=simpledialog.askstring('Router Credential','Enter router password for root (stored in Windows Credential Manager):',show='*',parent=self.root)
+        if password is None:return
+        try:
+            set_password(password)
+            messagebox.showinfo('Credential','Router credential stored for this Windows user.')
+        except Exception as exc:messagebox.showerror('Credential Error',str(exc))
+
+    def range_settings(self):
+        current=None
+        try:current=load_range(ROOT/CONFIG_NAME)
+        except Exception as exc:messagebox.showerror('Range Error',str(exc));return
+        dialog=tk.Toplevel(self.root);dialog.title('Production Range Settings');dialog.transient(self.root);dialog.grab_set()
+        values={};fields=[('sn_start','SN Start'),('sn_end','SN End'),('mac_start','MAC Start'),('mac_end','MAC End'),('mac_quantity','MACs per DUT')]
+        for i,(key,label) in enumerate(fields):
+            ttk.Label(dialog,text=label).grid(row=i,column=0,padx=12,pady=7,sticky='w')
+            var=tk.StringVar(value=str((current or {}).get(key,'4' if key=='mac_quantity' else '')))
+            ttk.Entry(dialog,textvariable=var,width=37).grid(row=i,column=1,padx=12,pady=7)
+            values[key]=var
+        def save():
+            import json
+            data={k:v.get().strip() for k,v in values.items()}
+            try:
+                validate_config(data);ROOT.mkdir(parents=True,exist_ok=True)
+                (ROOT/CONFIG_NAME).write_text(json.dumps(data,indent=2),encoding='utf-8')
+            except Exception as exc:messagebox.showerror('Range Error',str(exc));return
+            dialog.destroy();messagebox.showinfo('Range','Approved ranges saved. Verify allocation step with factory before release.')
+        ttk.Button(dialog,text='Save Settings',command=save).grid(row=len(fields),column=0,columnspan=2,pady=12)
+
     def led_confirm(self,title,instructions):
         """Blocking operator decision; focus PASS but never default to PASS silently."""
         dialog=tk.Toplevel(self.root);dialog.title(title);dialog.transient(self.root)
@@ -135,8 +169,12 @@ class App:
         self.root.wait_window(dialog)
         return result['value']
     def start(self):
-        if not self.host.get().strip() or not self.pw.get():
-            messagebox.showwarning('Missing input','Router IP and password are required.');return
+        if not self.host.get().strip():
+            messagebox.showwarning('Missing input','Router IP is required.');return
+        try:password=get_password()
+        except Exception as exc:messagebox.showerror('Credential Error',str(exc));return
+        if not password:
+            messagebox.showwarning('Credential Missing','Use Maintenance > Set Router Credential first.');return
         scans={'sn':self.sn.get().strip(),'mac':self.label_mac.get().strip(),'gpon':self.label_gpon.get().strip()}
         if not all(scans.values()):
             messagebox.showwarning('Missing scans','Scan SN, MAC and GPON SN before starting.');return
@@ -150,12 +188,13 @@ class App:
             functional=self.led_confirm('STEP 2 / 2 - FUNCTIONAL LED CHECK',
                 '1. Pick up telephone handset: Phone LED green blinking.\n'
                 '2. Connect fiber to the OLT. Wait for PON registration.\n'
-                '3. When registered (O5), PON LED must be green solid.\n\n'
+                '3. When registered (O5), PON LED must be green solid.\n'
+                '4. Power LED must be BLUE solid.\n\n'
                 'Inspect both LEDs. The software will independently check O5.')
             if functional=='CANCEL':return
         self.btn.configure(state='disabled');self.status.set('TESTING...' if initial=='PASS' and functional=='PASS' else 'LED FAIL')
         self.tree.delete(*self.tree.get_children())
-        values=(self.host.get().strip(),self.user.get().strip(),self.pw.get(),scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional)
+        values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional)
         threading.Thread(target=self.work,args=values,daemon=True).start()
     def work(self,host,user,password,scans,fw,operator,initial,functional):
         stamp=dt.datetime.now().strftime('%Y%m%d_%H%M%S_%f');directory=ROOT/stamp;client=None
@@ -166,7 +205,7 @@ class App:
             logger.info('START router=%s mode=READ_ONLY LED_INITIAL=%s LED_FUNCTIONAL=%s',host,initial,functional)
             if initial!='PASS' or functional!='PASS':
                 rows=[{'item':'LED Initial','expected':'Initial LED visual check','actual':initial,'result':initial},
-                      {'item':'LED Functional','expected':'Phone off-hook and PON green at O5','actual':functional,
+                      {'item':'LED Functional','expected':'Phone green blink / PON green solid / Power blue solid at O5','actual':functional,
                        'result':functional if functional=='FAIL' else 'INFO'}]
                 overall='FAIL';details={'label_scans':scans,'led_initial':initial,'led_functional':functional}
                 logger.info('LED check FAIL; HTTP automatic testing SKIPPED')
@@ -176,7 +215,12 @@ class App:
                     logger.debug(msg)
                 client=Inspector(host,safe_debug)
                 logger.info('LED checks PASS; HTTP login and read-only checks started')
-                overall,rows,details=client.run(user,password,scans,fw,initial,functional)
+                try:config=load_range(ROOT/CONFIG_NAME)
+                except Exception as exc:
+                    raise ValueError('Invalid approved production range: '+str(exc)) from exc
+                dupe=check_duplicate(ROOT,scans['sn'],scans['mac'])
+                overall,rows,details=client.run(user,password,scans,fw,initial,functional,range_config=config,duplicate_result=dupe)
+                details['production_range']=config or 'NOT CONFIGURED'
             details['led_initial']=initial;details['led_functional']=functional
             for row in rows:logger.info('TEST %s | expected=%s | actual=%s | result=%s',row['item'],row['expected'],row['actual'],row['result'])
             save_record(directory,overall,rows,details,scans['sn'],operator,scans)
