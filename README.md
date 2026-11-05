@@ -1,27 +1,21 @@
-# GRG-4361 FQC Test Tool V1.0.6
+# GRG-4361 FQC Test Tool V1.0.7
 
-English Windows 11 FQC read-only testing utility. Build EXE via GitHub Actions; Python is not required on factory workstations.
+**Operating system:** Windows 11 x64 English; **build:** GitHub Actions, Python 3.11 and PyInstaller. End users do not install Python.
 
-## Setup (once per Windows account)
-1. Extract EXE to a writable folder. Start it.
-2. In **Maintenance > Set Router Credential**, enter the approved root account password. It is saved via the OS credential provider; the secret is not stored in source or in Records. Do not share the password in logs.
-3. In **Maintenance > Production Range Settings**, enter approved 20-character SN first/last, MAC first/last, and MAC quantity per DUT (default 4). Settings file is `Records/production_range.json`. Verify the allocation step with your factory before production release.
-4. Fill Approved FW and Operator. Scan Chassis Label SN, MAC and GPON SN. Click START READ-ONLY CHECK.
-5. Confirm initial LEDs: Power green, Phone off, LAN blue where qualified, PON red blink. Connect fiber and off-hook telephone, then confirm Phone green blink, PON green solid, **Power blue solid**. Operator decision is required.
-6. Only after functional LED confirmation will the tool read device/PON information, check ONU O5 (10 s maximum), and evaluate optical Tx 6.8–7.2 dBm.
+## Operation
+1. Copy the EXE to a writable folder; place records under `Records` alongside EXE.
+2. From `Maintenance > Set Router Credential`, store the router password once per Windows user. Username is fixed `root`. No plaintext password is embedded in source.
+3. Under `Maintenance > Production Range Settings`, set approved SN/MAC ranges and MAC count (default four). Confirm the allocation stride against factory data.
+4. Scan chassis-label SN, MAC and GPON SN. Confirm initial and functional LED checks with the operator.
+5. Connect optical fiber, allow OLT registration, click the read-only test. O5 must appear within 10 seconds. Read Tx Power only after O5; 6.8–7.2 dBm is PASS.
+6. V1.0.7 also establishes Telnet on TCP 23, logs in with the same Windows-protected credential, executes only `labelinfo`, parses `PON BID`, checks 20 characters and consecutive `PPP`.
+7. Check the large colored status banner and Failure / Error Summary. Each failing row shows the expected and actual values. Three WAN Link Status-only test items are removed. WAN configuration items remain.
+8. Each test saves `FQC_Result.xlsx`, `result.json`, `execution.log`, `test.log`, `debug.log` under a timestamped Records folder. `GRG-4361_FQC_Master_Record.xlsx` appends all attempts. Access maintenance tools from the menu.
 
-## Results
-A separate `Records/<timestamp>/FQC_Result.xlsx` is saved for every run with `execution.log`, `test.log`, `debug.log`, `result.json`. All completed runs append into `Records/GRG-4361_FQC_Master_Record.xlsx`, preserving retests. Maintenance menu opens records and syncs pending runs.
-
-## Range semantics
-- SNs must share a fixed prefix and fixed-width decimal suffix; full SN length 20. Inclusive start/end.
-- MAC may be scanned with or without colons. Check lower/upper inclusive allocation based on base MAC through base+quantity-1. This assumes consecutive MAC assignments and **must be reconciled against factory MAC allocation rules**.
-- Missing approved ranges produce REVIEW (not PASS), out-of-range items FAIL.
-- Conflicting SN/MAC identities in previous runs FAIL; a repeat of the same SN and MAC is allowed and retained as a retest.
-
-## Test / build
-`python -m pip install -r requirements.txt`
-`python -m pytest -q tests`
-`pyinstaller --noconfirm --clean GRG-4361_FQC.spec`
-
-Windows Credential Manager via `keyring` must be verified after building with GitHub Actions. If the provider cannot store a secret, the application displays an error rather than exposing or caching a plaintext password. PyInstaller and target Windows 11 English verification are pending.
+## Important boundaries
+- Device configuration is not changed; only HTTP reads and Telnet `labelinfo`.
+- Telnet sends the credential over plaintext TCP. Use only on an isolated, authorized factory test LAN; never across the internet.
+- BID failure is FAIL; Telnet connection/parse failure is ERROR. The other device checks and result journal are retained where possible.
+- Prior Master columns are preserved for backward compatibility; three new BID columns are appended. New single-unit reports and GUI no longer include WAN Link Status as independent test items.
+- A fully populated Master workbook cannot be simultaneously opened for writing in Excel. Close it and use Maintenance > Sync Master to retry.
+- Python parser and Telnet protocol receive tests are simulated. GitHub Actions build, physical Telnet login, OLT and US Windows 11 execution are NOT yet verified.

@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 from router_oqc.client import RouterClient, RouterError
 
-VERSION = 'V1.0.6'
+VERSION = 'V1.0.7'
 TX_MIN_DBM = 6.8
 TX_MAX_DBM = 7.2
 WAN_GOLDEN = {
@@ -56,7 +56,7 @@ def check_tx_power(reading):
     number=float(m.group(1))
     return 'PASS' if TX_MIN_DBM <= number <= TX_MAX_DBM else 'FAIL'
 
-def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',range_config=None,duplicate_result=None):
+def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',range_config=None,duplicate_result=None,bid=None,bid_error=None):
     scans=scans or {};rows=[]
     def add(name,expected,actual,result):rows.append({'item':name,'expected':expected,'actual':actual,'result':result})
     add('LED Initial','Visual LED inspection','Operator: '+led_initial,led_initial)
@@ -82,7 +82,11 @@ def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',le
         if actual is None: add('WAN '+name,' | '.join(expected),'Missing','FAIL');continue
         value=tuple(actual.get(k,'') for k in ('VLAN ID','Connection Type','Protocol'))
         add('WAN '+name,' | '.join(expected),' | '.join(value),'PASS' if value==expected else 'FAIL')
-        add('WAN Link '+name,'Record only',actual.get('Status',''),'INFO')
+    from bid_telnet import assess_bid
+    if bid_error:
+        add('PON BID Read','Telnet labelinfo',bid_error,'ERROR')
+    elif bid is not None:
+        rows.extend(assess_bid(bid))
     onu_state=pon.get('ONU State','NOT READ')
     add('PON ONU State','O5 after fiber connection',onu_state,'PASS' if onu_state.upper()=='O5' else 'FAIL')
     tx=pon.get('Tx Power','NOT READ')
@@ -100,6 +104,7 @@ def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',le
 
 class Inspector:
     def __init__(self,host='192.168.1.1',debug=None):
+        self.host=host
         self.client=RouterClient(host,protocol='http',debug=debug)
     def close(self):self.client.close()
     def read(self,path):
@@ -127,5 +132,13 @@ class Inspector:
                     self.client.debug('O5 TIMEOUT after %s seconds; last state=%s; remaining automatic PON checks skipped' % (o5_timeout,pon['ONU State']))
                 break
             time.sleep(min(poll_interval,max(0,deadline-time.monotonic())))
-        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional,range_config,duplicate_result)
-        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'label_scans':scans or {},'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}
+        from bid_telnet import read_bid, BidTelnetError
+        bid=None;bid_error=None
+        try:
+            bid=read_bid(self.host,username,password) if hasattr(self,'host') else None
+            if self.client.debug:self.client.debug('Telnet labelinfo PON BID read successful')
+        except BidTelnetError as exc:
+            bid_error=str(exc)
+            if self.client.debug:self.client.debug('Telnet BID read error: '+bid_error)
+        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional,range_config,duplicate_result,bid,bid_error)
+        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'bid':bid,'bid_error':bid_error,'label_scans':scans or {},'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}

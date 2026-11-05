@@ -18,7 +18,7 @@ from range_check import CONFIG_NAME, load_range, validate_config, check_duplicat
 from credential_store import get_password, set_password
 from tkinter import simpledialog
 
-APP='GRG-4361 FQC Test Tool V1.0.6'
+APP='GRG-4361 FQC Test Tool V1.0.7'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -45,7 +45,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.6',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.7',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
@@ -64,7 +64,8 @@ class App:
         bar=ttk.Frame(root,padding=(14,9));bar.pack(fill='x')
         self.btn=ttk.Button(bar,text='START READ-ONLY CHECK',command=self.start)
         self.btn.pack(side='right',padx=8)
-        ttk.Label(bar,textvariable=self.status,font=('Arial',17,'bold')).pack(side='left',padx=10)
+        self.status_banner=tk.Label(bar,textvariable=self.status,font=('Arial',17,'bold'),bg='#DDEBFF',fg='#153C82',anchor='w',padx=12,pady=5)
+        self.status_banner.pack(side='left',padx=10,fill='x',expand=True)
         scan_frame=ttk.LabelFrame(root,text='Chassis Label Barcode Scan',padding=10)
         scan_frame.pack(fill='x',padx=14,pady=6)
         self.scan_entries=[]
@@ -94,7 +95,16 @@ class App:
         for k,heading,width in zip(columns,['Test Item','Expected / Rule','Actual Value','Result'],[230,270,290,110]):
             self.tree.heading(k,text=heading);self.tree.column(k,width=width,stretch=True)
         sb=ttk.Scrollbar(area,orient='vertical',command=self.tree.yview);self.tree.configure(yscrollcommand=sb.set)
+        self.tree.tag_configure('PASS',background='#E2F5E7',foreground='#116227')
+        self.tree.tag_configure('FAIL',background='#FFE0E0',foreground='#990000')
+        self.tree.tag_configure('ERROR',background='#FFD9D9',foreground='#860000')
+        self.tree.tag_configure('REVIEW',background='#FFF0CE',foreground='#8A5900')
+        self.tree.tag_configure('INFO',foreground='#666666')
         self.tree.pack(side='left',fill='both',expand=True);sb.pack(side='left',fill='y')
+        self.failure_frame=ttk.LabelFrame(root,text='FAILURE / ERROR SUMMARY',padding=5)
+        self.failure_frame.pack(fill='x',padx=12,pady=4)
+        self.failure_text=tk.Text(self.failure_frame,height=3,wrap='word',state='disabled',font=('Arial',11),bg='#FFF2F2')
+        self.failure_text.pack(fill='x')
         ttk.Label(root,text='Records: <EXE Folder>\\Records   |   Read-only: no reset, write, or OLT operations',padding=10).pack(anchor='w')
         root.after(100,self.poll)
     def open_folder(self, path):
@@ -193,7 +203,9 @@ class App:
                 'Inspect both LEDs. The software will independently check O5.')
             if functional=='CANCEL':return
         self.btn.configure(state='disabled');self.status.set('TESTING...' if initial=='PASS' and functional=='PASS' else 'LED FAIL')
+        self.status_banner.configure(bg='#FACC15',fg='#4A3400')
         self.tree.delete(*self.tree.get_children())
+        self.set_failure_summary([])
         values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional)
         threading.Thread(target=self.work,args=values,daemon=True).start()
     def work(self,host,user,password,scans,fw,operator,initial,functional):
@@ -239,6 +251,14 @@ class App:
             self.q.put(('error',type(exc).__name__+': '+str(exc),[],str(directory)))
         finally:
             if client:client.close()
+    def set_failure_summary(self, rows, error_message=''):
+        problems=[r for r in rows if r.get('result') in ('FAIL','ERROR')]
+        lines=[f"{r['item']} | Expected: {r['expected']} | Actual: {r['actual']} | {r['result']}" for r in problems]
+        if error_message: lines.insert(0,'ERROR: '+error_message)
+        if not lines:lines=['No failed items.']
+        self.failure_text.configure(state='normal')
+        self.failure_text.delete('1.0','end');self.failure_text.insert('1.0','\n'.join(lines))
+        self.failure_text.configure(state='disabled')
     def poll(self):
         while not self.q.empty():
             kind,status,rows,path=self.q.get()
@@ -246,9 +266,13 @@ class App:
                 if kind=='sync':messagebox.showinfo('Master Sync','New rows appended: '+status)
                 else:messagebox.showwarning('Master Sync Failed','Close Master Excel and retry.\n'+status)
                 continue
-            for r in rows:self.tree.insert('', 'end',values=tuple(r[k] for k in ('item','expected','actual','result')))
+            for r in rows:self.tree.insert('', 'end',values=tuple(r[k] for k in ('item','expected','actual','result')),tags=(r['result'],))
+            self.set_failure_summary(rows,status if kind=='error' else '')
             self.last_run_dir=path
             self.status.set(status+' | '+path);self.btn.configure(state='normal')
+            kind_color=('FAIL' if status.startswith('FAIL') else 'ERROR' if kind=='error' or status.startswith('ERROR') else 'REVIEW' if status.startswith('REVIEW') else 'PASS' if status.startswith('PASS') else 'READY')
+            background={'FAIL':'#B91C1C','ERROR':'#7F1D1D','PASS':'#15803D','REVIEW':'#B45309','READY':'#DDEBFF'}[kind_color]
+            self.status_banner.configure(bg=background,fg='white' if kind_color!='READY' else '#153C82')
             if kind=='error':messagebox.showerror('Inspection Error',status+'\n\nLogs: '+path)
         self.root.after(100,self.poll)
 

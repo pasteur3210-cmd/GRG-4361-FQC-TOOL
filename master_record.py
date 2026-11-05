@@ -17,12 +17,12 @@ HEADERS = [
     'WAN Link nas0_0','WAN Link nas0_1','WAN Link nas0_2',
     'PON Temperature','PON Voltage','PON Tx Power','PON Rx Power',
     'PON Bias Current','PON ONU State','PON ONU ID','PON LOID Status',
-    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result'
+    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result','PON BID','BID Length Result','BID Pattern Result'
 ]
 
 def _make_book():
     wb=Workbook();ws=wb.active;ws.title='All Tests';ws.append(HEADERS)
-    ws.freeze_panes='D2';ws.auto_filter.ref=f'A1:AF1'
+    ws.freeze_panes='D2';ws.auto_filter.ref=f'A1:{get_column_letter(len(HEADERS))}1'
     for idx,header in enumerate(HEADERS,1):
         cell=ws.cell(1,idx);cell.font=Font(color='FFFFFF',bold=True)
         cell.fill=PatternFill('solid',fgColor='17365D');cell.alignment=Alignment(wrap_text=True)
@@ -62,7 +62,8 @@ def _row(payload, run_dir, number):
         payload.get('overall',''),failures('FAIL'),failures('REVIEW'),str(run_dir),
         payload.get('label_scans',{}).get('mac',''),payload.get('label_scans',{}).get('gpon',''),
         results.get('LED Initial',{}).get('result',''),results.get('LED Functional',{}).get('result',''),
-        results.get('PON Tx Power',{}).get('result','')
+        results.get('PON Tx Power',{}).get('result',''),
+        details.get('bid',''),results.get('PON BID Length',{}).get('result',''),results.get('PON BID Pattern',{}).get('result','')
     ]
 
 def sync_master(root: Path, timeout=3):
@@ -96,7 +97,7 @@ def sync_master(root: Path, timeout=3):
             except (OSError,ValueError,KeyError,TypeError,json.JSONDecodeError):
                 continue  # An incomplete per-run journal is not a valid Master Record entry.
         if not added and master.exists():return 0
-        ws.auto_filter.ref=f'A1:AF{ws.max_row}'
+        ws.auto_filter.ref=f'A1:{get_column_letter(len(HEADERS))}{ws.max_row}'
         temp=None
         try:
             with NamedTemporaryFile(dir=root,prefix='.fqc_master_',suffix='.xlsx',delete=False) as f:
