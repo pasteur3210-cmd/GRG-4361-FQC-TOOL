@@ -16,10 +16,10 @@ def test_expected_fail():
     assert overall=='FAIL';assert next(x for x in rows if x['item']=='GPON SN vs MAC')['result']=='FAIL'
 def test_valid_gpon_but_missing_fw():
     d=parse_device(device_html());overall,_=assess(d,'CMTD0CFFC101',parse_pon(pon_html()))
-    assert overall=='REVIEW'
+    assert overall=='FAIL'  # V1.0.4: O1, no scans and No signal must not pass
 def test_valid_gpon_approved_fw_still_sn_review():
     d=parse_device(device_html());overall,_=assess(d,'CMTD0CFFC101',parse_pon(pon_html()),expected_firmware='MTA-1.0.14')
-    assert overall=='REVIEW'
+    assert overall=='FAIL'  # V1.0.4: O1, no scans and No signal must not pass
 
 
 def test_malformed_wan_middle_row_is_not_lost():

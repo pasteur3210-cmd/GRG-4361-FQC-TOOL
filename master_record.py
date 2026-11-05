@@ -17,12 +17,12 @@ HEADERS = [
     'WAN Link nas0_0','WAN Link nas0_1','WAN Link nas0_2',
     'PON Temperature','PON Voltage','PON Tx Power','PON Rx Power',
     'PON Bias Current','PON ONU State','PON ONU ID','PON LOID Status',
-    'Overall Result','Failure Items','Review Items','Record Path'
+    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result'
 ]
 
 def _make_book():
     wb=Workbook();ws=wb.active;ws.title='All Tests';ws.append(HEADERS)
-    ws.freeze_panes='D2';ws.auto_filter.ref=f'A1:AA1'
+    ws.freeze_panes='D2';ws.auto_filter.ref=f'A1:AF1'
     for idx,header in enumerate(HEADERS,1):
         cell=ws.cell(1,idx);cell.font=Font(color='FFFFFF',bold=True)
         cell.fill=PatternFill('solid',fgColor='17365D');cell.alignment=Alignment(wrap_text=True)
@@ -59,7 +59,10 @@ def _row(payload, run_dir, number):
         *[wan_value(n) for n in ('nas0_0','nas0_1','nas0_2')],
         *[wan_link(n) for n in ('nas0_0','nas0_1','nas0_2')],
         *[pon.get(k,'') for k in ('Temperature','Voltage','Tx Power','Rx Power','Bias Current','ONU State','ONU ID','LOID Status')],
-        payload.get('overall',''),failures('FAIL'),failures('REVIEW'),str(run_dir)
+        payload.get('overall',''),failures('FAIL'),failures('REVIEW'),str(run_dir),
+        payload.get('label_scans',{}).get('mac',''),payload.get('label_scans',{}).get('gpon',''),
+        results.get('LED Initial',{}).get('result',''),results.get('LED Functional',{}).get('result',''),
+        results.get('PON Tx Power',{}).get('result','')
     ]
 
 def sync_master(root: Path, timeout=3):
@@ -70,6 +73,9 @@ def sync_master(root: Path, timeout=3):
     with lock:
         wb=load_workbook(master) if master.exists() else _make_book()
         ws=wb['All Tests']
+        # Compatible upgrade for existing V1.0.3 Master workbook.
+        for i,header in enumerate(HEADERS,1):
+            if ws.cell(1,i).value != header: ws.cell(1,i,header)
         existing={str(ws.cell(i,1).value) for i in range(2,ws.max_row+1)}
         counts={}
         for i in range(2,ws.max_row+1):
@@ -90,7 +96,7 @@ def sync_master(root: Path, timeout=3):
             except (OSError,ValueError,KeyError,TypeError,json.JSONDecodeError):
                 continue  # An incomplete per-run journal is not a valid Master Record entry.
         if not added and master.exists():return 0
-        ws.auto_filter.ref=f'A1:AA{ws.max_row}'
+        ws.auto_filter.ref=f'A1:AF{ws.max_row}'
         temp=None
         try:
             with NamedTemporaryFile(dir=root,prefix='.fqc_master_',suffix='.xlsx',delete=False) as f:
