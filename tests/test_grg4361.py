@@ -20,3 +20,18 @@ def test_valid_gpon_but_missing_fw():
 def test_valid_gpon_approved_fw_still_sn_review():
     d=parse_device(device_html());overall,_=assess(d,'CMTD0CFFC101',parse_pon(pon_html()),expected_firmware='MTA-1.0.14')
     assert overall=='REVIEW'
+
+
+def test_malformed_wan_middle_row_is_not_lost():
+    # Real DUT response: the nas0_1 row lacks an opening <tr> after nas0_0.
+    html=device_html().replace('</tr><tr><td>nas0_1', '</tr><td>nas0_1')
+    data=parse_device(html)
+    assert [r['Interface'] for r in data['wan']]==['nas0_0','nas0_1','nas0_2']
+    overall, rows=assess(data,'CMTD0CFFC101',parse_pon(pon_html()),expected_firmware='MTA-1.0.14')
+    assert next(x for x in rows if x['item']=='WAN nas0_1')['result']=='PASS'
+
+def test_wan_missing_is_still_fail():
+    html=device_html().replace('<tr><td>nas0_1</td><td>747</td><td>VOICE</td><td>IPoE</td><td></td><td></td><td>down</td></tr>','')
+    data=parse_device(html)
+    _, rows=assess(data,'CMTD0CFFC101',parse_pon(pon_html()))
+    assert next(x for x in rows if x['item']=='WAN nas0_1')['result']=='FAIL'
