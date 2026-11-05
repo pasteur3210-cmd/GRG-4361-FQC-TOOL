@@ -1,3 +1,9 @@
+# V1.0.5 (2026-11-05)
+- Reduced O5 state polling window from 60 s to 10 s, cadence 2 s to 1 s.
+- When O5 times out, record explicit O5 Timeout FAIL, Tx Power SKIP, save single-unit and Master records; keep GUI running.
+- Preserve 6.8–7.2 dBm optical Tx threshold, barcodes, two LED manual checks, existing HTTP read-only workflow.
+- Updated workflow, EXE filename, docs and regression tests.
+
 # CHANGELOG
 ## V1.0.4 — 2026-11-05
 - Three mandatory barcode entry fields: SN, MAC, GPON SN. Automatic focus advance on scanner Enter.

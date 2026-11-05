@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 from router_oqc.client import RouterClient, RouterError
 
-VERSION = 'V1.0.4'
+VERSION = 'V1.0.5'
 TX_MIN_DBM = 6.8
 TX_MAX_DBM = 7.2
 WAN_GOLDEN = {
@@ -83,7 +83,11 @@ def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',le
     onu_state=pon.get('ONU State','NOT READ')
     add('PON ONU State','O5 after fiber connection',onu_state,'PASS' if onu_state.upper()=='O5' else 'FAIL')
     tx=pon.get('Tx Power','NOT READ')
-    add('PON Tx Power',f'{TX_MIN_DBM:.1f} to {TX_MAX_DBM:.1f} dBm',tx,check_tx_power(tx) if onu_state.upper()=='O5' else 'FAIL')
+    if onu_state.upper() != 'O5':
+        add('O5 Timeout','ONU State O5 within 10 seconds',onu_state,'FAIL')
+        add('PON Tx Power',f'{TX_MIN_DBM:.1f} to {TX_MAX_DBM:.1f} dBm','Not tested (O5 timeout)','SKIP')
+    else:
+        add('PON Tx Power',f'{TX_MIN_DBM:.1f} to {TX_MAX_DBM:.1f} dBm',tx,check_tx_power(tx))
     for name,value in pon.items():
         if name in ('ONU State','Tx Power'):continue
         add('PON '+name,'Record only',value,'INFO')
@@ -101,20 +105,24 @@ class Inspector:
             raise RouterError('READ_FAILED','Not authenticated or HTTP error: '+path)
         return response.text
     def run(self,username,password,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',
-            o5_timeout=60,poll_interval=2):
+            o5_timeout=10,poll_interval=1):
         self.client.login(username,password)
         if self.client.debug:self.client.debug('HTTP read status.asp START')
         device=parse_device(self.read('status.asp'))
         if self.client.debug:self.client.debug('HTTP read status.asp OK')
         gpon=parse_gpon(self.read('gpon.asp'))
         if self.client.debug:self.client.debug('HTTP read gpon.asp OK; PON status delayed until after fiber connection')
+        # Clock starts at first ONU status poll, after the label/device reads.
         deadline=time.monotonic()+o5_timeout
         pon={};attempts=0
         while True:
             attempts+=1
             pon=parse_pon(self.read('status_pon.asp'))
             if self.client.debug:self.client.debug('PON ONU State poll #%d: %s'%(attempts,pon['ONU State']))
-            if pon['ONU State'].upper()=='O5' or time.monotonic()>=deadline:break
+            if pon['ONU State'].upper()=='O5' or time.monotonic()>=deadline:
+                if pon['ONU State'].upper()!='O5' and self.client.debug:
+                    self.client.debug('O5 TIMEOUT after %s seconds; last state=%s; remaining automatic PON checks skipped' % (o5_timeout,pon['ONU State']))
+                break
             time.sleep(min(poll_interval,max(0,deadline-time.monotonic())))
         overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional)
-        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'label_scans':scans or {},'o5_polls':attempts}
+        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'label_scans':scans or {},'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}

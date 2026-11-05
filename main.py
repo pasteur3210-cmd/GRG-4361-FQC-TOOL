@@ -15,7 +15,7 @@ from grg4361 import Inspector
 from openpyxl import Workbook
 from master_record import sync_master, MASTER_NAME
 
-APP='GRG-4361 FQC Test Tool V1.0.4'
+APP='GRG-4361 FQC Test Tool V1.0.5'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -42,7 +42,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.4',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.5',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
