@@ -18,7 +18,7 @@ from range_check import CONFIG_NAME, load_range, validate_config, check_duplicat
 from credential_store import get_password, set_password
 from tkinter import simpledialog
 
-APP='GRG-4361 FQC Test Tool V1.0.7'
+APP='GRG-4361 FQC Test Tool V1.0.8'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -45,7 +45,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.7',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.8',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
@@ -80,6 +80,7 @@ class App:
         self.scan_entries[-1].bind('<Return>',lambda event:self.btn.focus_set())
         self.scan_entries[0].focus_set()
         self.last_run_dir=None
+        self.record_note=tk.StringVar(value='Record: Not started')
         root.option_add('*Font','Arial 10')
         menu=tk.Menu(root);tools=tk.Menu(menu,tearoff=False)
         tools.add_command(label='Open Records',command=self.open_records)
@@ -105,7 +106,8 @@ class App:
         self.failure_frame.pack(fill='x',padx=12,pady=4)
         self.failure_text=tk.Text(self.failure_frame,height=3,wrap='word',state='disabled',font=('Arial',11),bg='#FFF2F2')
         self.failure_text.pack(fill='x')
-        ttk.Label(root,text='Records: <EXE Folder>\\Records   |   Read-only: no reset, write, or OLT operations',padding=10).pack(anchor='w')
+        ttk.Label(root,textvariable=self.record_note,padding=(12,2)).pack(anchor='w')
+        ttk.Label(root,text='Read-only: no reset, write, or OLT operations',padding=(12,4)).pack(anchor='w')
         root.after(100,self.poll)
     def open_folder(self, path):
         path=Path(path)
@@ -181,6 +183,8 @@ class App:
     def start(self):
         if not self.host.get().strip():
             messagebox.showwarning('Missing input','Router IP is required.');return
+        if not self.operator.get().strip():
+            messagebox.showwarning('Operator Required','Enter Operator before starting FQC inspection.');return
         try:password=get_password()
         except Exception as exc:messagebox.showerror('Credential Error',str(exc));return
         if not password:
@@ -259,6 +263,20 @@ class App:
         self.failure_text.configure(state='normal')
         self.failure_text.delete('1.0','end');self.failure_text.insert('1.0','\n'.join(lines))
         self.failure_text.configure(state='disabled')
+    @staticmethod
+    def format_status(status,rows,kind='ok'):
+        if kind=='error':return 'FQC ERROR | '+status[:140]
+        base=status.split(' | MASTER PENDING')[0].strip()
+        failures=[r for r in rows if r.get('result') in ('FAIL','ERROR')]
+        if failures:
+            if len(failures)==1:
+                r=failures[0]
+                return f"FQC FAIL | {r['item']}: {r['actual']} | Spec: {r['expected']}"[:190]
+            return f'FQC FAIL | {len(failures)} Failed Items | See Failure Summary'
+        if base=='PASS':return 'FQC PASS | All Required Checks Passed'
+        if base=='REVIEW':return 'FQC REVIEW | Pending Items: '+', '.join(r['item'] for r in rows if r.get('result')=='REVIEW')[:125]
+        return 'FQC '+base
+
     def poll(self):
         while not self.q.empty():
             kind,status,rows,path=self.q.get()
@@ -266,10 +284,17 @@ class App:
                 if kind=='sync':messagebox.showinfo('Master Sync','New rows appended: '+status)
                 else:messagebox.showwarning('Master Sync Failed','Close Master Excel and retry.\n'+status)
                 continue
-            for r in rows:self.tree.insert('', 'end',values=tuple(r[k] for k in ('item','expected','actual','result')),tags=(r['result'],))
+            self.tree.delete(*self.tree.get_children())
+            first_failure=None
+            for r in rows:
+                item_id=self.tree.insert('', 'end',values=tuple(r[k] for k in ('item','expected','actual','result')),tags=(r['result'],))
+                if first_failure is None and r.get('result') in ('FAIL','ERROR'):first_failure=item_id
+            if first_failure is not None:
+                self.tree.see(first_failure);self.tree.selection_set(first_failure)
             self.set_failure_summary(rows,status if kind=='error' else '')
             self.last_run_dir=path
-            self.status.set(status+' | '+path);self.btn.configure(state='normal')
+            self.status.set(self.format_status(status,rows,kind));self.btn.configure(state='normal')
+            self.record_note.set('Record Saved: '+Path(path).name+'   |   Full path: Maintenance > Open Last Run Logs')
             kind_color=('FAIL' if status.startswith('FAIL') else 'ERROR' if kind=='error' or status.startswith('ERROR') else 'REVIEW' if status.startswith('REVIEW') else 'PASS' if status.startswith('PASS') else 'READY')
             background={'FAIL':'#B91C1C','ERROR':'#7F1D1D','PASS':'#15803D','REVIEW':'#B45309','READY':'#DDEBFF'}[kind_color]
             self.status_banner.configure(bg=background,fg='white' if kind_color!='READY' else '#153C82')

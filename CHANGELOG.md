@@ -1,4 +1,12 @@
 # CHANGELOG
+## V1.0.8 — 2026-11-05
+- Replaced large full-path status banner with concise FQC result and failed item, actual and expected value.
+- Multiple failures: show count and direct the user to the complete Failure Summary.
+- Display short run identifier at bottom; full record remains accessible through Maintenance.
+- Auto-select and scroll to first FAIL/ERROR row.
+- Require Operator before starting; prevent blank operator history in formal FQC records.
+- Preserve V1.0.7 functional inspections, Telnet BID, WAN checks, cumulative Master Record and per-test logs.
+
 ## V1.0.7 — 2026-11-05
 - Added read-only Telnet BID verification (`labelinfo`) with 20-character length and contiguous `PPP` checks.
 - Added large colored overall-status banner, per-row PASS/FAIL/REVIEW/ERROR shading, and Failure / Error Summary with expected and actual values.
