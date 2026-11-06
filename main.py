@@ -10,15 +10,16 @@ import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from grg4361 import Inspector
 from openpyxl import Workbook
 from master_record import sync_master, MASTER_NAME
 from range_check import CONFIG_NAME, load_range, validate_config, check_duplicate
 from credential_store import get_password, set_password
 from tkinter import simpledialog
+from production_data import import_and_activate, active_production, range_values, to_txt
 
-APP='GRG-4361 FQC Test Tool V1.0.8'
+APP='GRG-4361 FQC Test Tool V1.0.9'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -39,16 +40,25 @@ def make_logger(directory):
 
 def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
     now=dt.datetime.now().astimezone().isoformat(timespec='seconds')
-    payload={'timestamp':now,'overall':overall,'results':rows,'details':details,'dut_sn':sn,'operator':operator,'label_scans':scans or {}}
+    payload={'timestamp':now,'overall':overall,'results':rows,'details':details,'dut_sn':sn,'operator':operator,'label_scans':scans or {},'production_data':details.get('production_data')}
     (directory/'result.json').write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding='utf-8')
     with (directory/'test.log').open('w',encoding='utf-8') as f:
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.8',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.9',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
+    production=details.get('production_data')
+    if production:
+        pws=wb.create_sheet('Production Info')
+        pws.append(['Section','Parameter','Value'])
+        for sec,items in production['settings'].items():
+            for key,val in items.items():pws.append([sec,key,val])
+        for key in ('source','source_file','sha256','import_time','activated_by'):
+            pws.append(['TRACEABILITY',key,production.get(key,'')])
+        for col,width in [('A',23),('B',28),('C',67)]:pws.column_dimensions[col].width=width
     wb.save(directory/'FQC_Result.xlsx')
 
 class App:
@@ -80,6 +90,9 @@ class App:
         self.scan_entries[-1].bind('<Return>',lambda event:self.btn.focus_set())
         self.scan_entries[0].focus_set()
         self.last_run_dir=None
+        self.production_info=None
+        try:self.production_info=active_production(ROOT)
+        except Exception as exc:messagebox.showerror('Production Data Error',str(exc))
         self.record_note=tk.StringVar(value='Record: Not started')
         root.option_add('*Font','Arial 10')
         menu=tk.Menu(root);tools=tk.Menu(menu,tearoff=False)
@@ -88,6 +101,10 @@ class App:
         tools.add_command(label='Open Master',command=self.open_master)
         tools.add_command(label='Sync Master',command=self.sync_master_manual)
         tools.add_command(label='Production Range Settings',command=self.range_settings)
+        tools.add_command(label='Import Production Data TXT',command=self.import_production)
+        tools.add_command(label='View Active Production Data',command=self.view_production)
+        tools.add_command(label='Switch to Manual Settings',command=self.activate_manual)
+        tools.add_command(label='Export Active Production TXT',command=self.export_production)
         tools.add_command(label='Set Router Credential',command=self.set_router_credential)
         menu.add_cascade(label='Maintenance',menu=tools);root.configure(menu=menu)
         columns=('item','expected','actual','result')
@@ -106,7 +123,10 @@ class App:
         self.failure_frame.pack(fill='x',padx=12,pady=4)
         self.failure_text=tk.Text(self.failure_frame,height=3,wrap='word',state='disabled',font=('Arial',11),bg='#FFF2F2')
         self.failure_text.pack(fill='x')
+        self.lot_banner=tk.StringVar(value='PRODUCTION DATA: Manual Settings')
+        ttk.Label(root,textvariable=self.lot_banner,padding=(12,2)).pack(anchor='w')
         ttk.Label(root,textvariable=self.record_note,padding=(12,2)).pack(anchor='w')
+        self.refresh_production_label()
         ttk.Label(root,text='Read-only: no reset, write, or OLT operations',padding=(12,4)).pack(anchor='w')
         root.after(100,self.poll)
     def open_folder(self, path):
@@ -164,6 +184,45 @@ class App:
             dialog.destroy();messagebox.showinfo('Range','Approved ranges saved. Verify allocation step with factory before release.')
         ttk.Button(dialog,text='Save Settings',command=save).grid(row=len(fields),column=0,columnspan=2,pady=12)
 
+    def refresh_production_label(self):
+        if self.production_info:
+            d=self.production_info['settings'];g=d['GENERAL']
+            self.lot_banner.set(f"ACTIVE LOT: {g['PRODUCTION_MO']} | BOM: {g['BOM_PN']} | PO: {g['CUSTOMER_PO']} | TXT")
+            self.host.set(d['DEVICE']['ROUTER_IP']);self.fw.set(d['DEVICE']['APPROVED_FW'])
+        else:self.lot_banner.set('PRODUCTION DATA: Manual Range Settings (no TXT lot active)')
+    def import_production(self):
+        if str(self.btn['state'])=='disabled':messagebox.showwarning('Testing','Cannot switch lots during testing');return
+        filename=filedialog.askopenfilename(title='Import Production Data',filetypes=[('Production TXT','*.txt')])
+        if not filename:return
+        try:
+            raw=Path(filename).read_text(encoding='utf-8-sig')
+            from production_data import parse_production_text
+            values=parse_production_text(raw)
+            g=values['GENERAL']
+            if not messagebox.askyesno('Activate Production Lot',f"MO: {g['PRODUCTION_MO']}\nBOM: {g['BOM_PN']}\nPO: {g['CUSTOMER_PO']}\nQty: {g['PRODUCTION_QTY']}\n\nActivate this lot?"):return
+            info=import_and_activate(raw,ROOT,filename,self.operator.get().strip())
+            self.production_info=info;self.refresh_production_label()
+            messagebox.showinfo('Production Data','Production lot validated and activated. Original TXT snapshot preserved.')
+        except Exception as exc:messagebox.showerror('Production Data Import Error',str(exc))
+    def activate_manual(self):
+        if str(self.btn['state'])=='disabled':messagebox.showwarning('Testing','Cannot change mode during testing');return
+        if not messagebox.askyesno('Manual Mode','Deactivate imported TXT lot and use manual range settings?'):return
+        current=ROOT/'active_production.json'
+        if current.is_file():
+            archive=ROOT/'Production_Snapshots'/('deactivated_'+dt.datetime.now().strftime('%Y%m%d_%H%M%S')+'.json')
+            archive.parent.mkdir(parents=True,exist_ok=True)
+            current.replace(archive)
+        self.production_info=None;self.refresh_production_label()
+        messagebox.showinfo('Manual Mode','Manual range settings now active. Review Router IP and Approved FW.')
+    def view_production(self):
+        if not self.production_info:messagebox.showinfo('Production Data','No TXT lot active. Manual range settings are in use.');return
+        info=self.production_info
+        messagebox.showinfo('Active Production Data',to_txt(info['settings'])[:3900]+'\nSHA256: '+info['sha256'])
+    def export_production(self):
+        if not self.production_info:messagebox.showwarning('Production Data','No active TXT lot');return
+        filename=filedialog.asksaveasfilename(defaultextension='.txt',filetypes=[('TXT','*.txt')])
+        if filename:Path(filename).write_text(to_txt(self.production_info['settings']),encoding='utf-8')
+
     def led_confirm(self,title,instructions):
         """Blocking operator decision; focus PASS but never default to PASS silently."""
         dialog=tk.Toplevel(self.root);dialog.title(title);dialog.transient(self.root)
@@ -181,6 +240,10 @@ class App:
         self.root.wait_window(dialog)
         return result['value']
     def start(self):
+        if self.production_info:
+            d=self.production_info['settings']['DEVICE']
+            if self.host.get().strip()!=d['ROUTER_IP'] or self.fw.get().strip()!=d['APPROVED_FW']:
+                messagebox.showerror('Active Lot Mismatch','Router IP / Approved FW differs from active TXT lot. Reactivate lot or restore fields.');return
         if not self.host.get().strip():
             messagebox.showwarning('Missing input','Router IP is required.');return
         if not self.operator.get().strip():
@@ -210,14 +273,18 @@ class App:
         self.status_banner.configure(bg='#FACC15',fg='#4A3400')
         self.tree.delete(*self.tree.get_children())
         self.set_failure_summary([])
-        values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional)
+        import copy
+        active=copy.deepcopy(self.production_info)
+        values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional,active)
         threading.Thread(target=self.work,args=values,daemon=True).start()
-    def work(self,host,user,password,scans,fw,operator,initial,functional):
+    def work(self,host,user,password,scans,fw,operator,initial,functional,production=None):
         stamp=dt.datetime.now().strftime('%Y%m%d_%H%M%S_%f');directory=ROOT/stamp;client=None
         try:logger=make_logger(directory)
         except OSError as exc:
             self.q.put(('error','Cannot write Records next to EXE: '+str(exc),[],str(directory)));return
         try:
+            if production:
+                logger.info('ACTIVE LOT %s, TXT sha256=%s',production['lot_id'],production['sha256'])
             logger.info('START router=%s mode=READ_ONLY LED_INITIAL=%s LED_FUNCTIONAL=%s',host,initial,functional)
             if initial!='PASS' or functional!='PASS':
                 rows=[{'item':'LED Initial','expected':'Initial LED visual check','actual':initial,'result':initial},
@@ -231,13 +298,15 @@ class App:
                     logger.debug(msg)
                 client=Inspector(host,safe_debug)
                 logger.info('LED checks PASS; HTTP login and read-only checks started')
-                try:config=load_range(ROOT/CONFIG_NAME)
+                try:config=range_values(production) if production else load_range(ROOT/CONFIG_NAME)
                 except Exception as exc:
                     raise ValueError('Invalid approved production range: '+str(exc)) from exc
                 dupe=check_duplicate(ROOT,scans['sn'],scans['mac'])
                 overall,rows,details=client.run(user,password,scans,fw,initial,functional,range_config=config,duplicate_result=dupe)
                 details['production_range']=config or 'NOT CONFIGURED'
             details['led_initial']=initial;details['led_functional']=functional
+            details['production_data']=production
+            if production:logger.info('PRODUCTION MO=%s sha256=%s',production['lot_id'],production['sha256'])
             for row in rows:logger.info('TEST %s | expected=%s | actual=%s | result=%s',row['item'],row['expected'],row['actual'],row['result'])
             save_record(directory,overall,rows,details,scans['sn'],operator,scans)
             try:

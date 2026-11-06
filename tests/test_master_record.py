@@ -32,7 +32,9 @@ def test_multi_unit_append_and_retest(tmp_path):
     assert [ws.cell(i,24).value for i in (2,3,4)]==['FAIL','PASS','PASS']
     assert ws['F2'].value=='64680CFFC101'
     assert ws['K2'].value=='Missing'
-    assert wb['Summary']['B2'].value.startswith('=COUNTA')
+    assert wb['Summary']['B2'].value == 3
+    assert wb['Summary']['B3'].value == 2
+    assert wb['Summary']['B4'].value == 1
 
 def test_open_workbook_failure_preserves_journal(tmp_path):
     run=make_run(tmp_path,'20261105_090000_000001','SN001')

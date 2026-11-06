@@ -1,15 +1,9 @@
-# CHANGELOG
-## V1.0.8 — 2026-11-05
-- Replaced large full-path status banner with concise FQC result and failed item, actual and expected value.
-- Multiple failures: show count and direct the user to the complete Failure Summary.
-- Display short run identifier at bottom; full record remains accessible through Maintenance.
-- Auto-select and scroll to first FAIL/ERROR row.
-- Require Operator before starting; prevent blank operator history in formal FQC records.
-- Preserve V1.0.7 functional inspections, Telnet BID, WAN checks, cumulative Master Record and per-test logs.
+# Changelog
 
-## V1.0.7 — 2026-11-05
-- Added read-only Telnet BID verification (`labelinfo`) with 20-character length and contiguous `PPP` checks.
-- Added large colored overall-status banner, per-row PASS/FAIL/REVIEW/ERROR shading, and Failure / Error Summary with expected and actual values.
-- Removed three `WAN Link nas0_0/1/2` INFO test rows from GUI, single-run report and new test results; retained underlying WAN parser and legacy Master columns for audit compatibility.
-- Appended PON BID and both BID results to the cumulative Master Record.
-- Preserved V1.0.6 features: barcode scan, LED checks, SN/MAC range, O5 timeout 10 s, Tx 6.8–7.2 dBm, one-run Excel, master append and three logs.
+## V1.0.9
+- Added validated key=value Production Data TXT import, lot activation, SHA-256 snapshots and active-lot display.
+- Manual and TXT modes; immutable run-level lot snapshot, no automatic test-standard overrides.
+- All Tests expanded with customer PO, BOM, MO, IP, profile and SN/MAC ranges.
+- Master Production Info and Lot History generated from completed run records; Summary now stores numeric totals rather than formula-only cached blanks.
+- Added import failure protection, production-lot mismatched IP/FW blocking, and in-test lot-switch prevention.
+- Retained V1.0.8 HTTP, Telnet, WAN, LED, O5, Tx-power, FAIL UI, report and log logic.

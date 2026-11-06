@@ -30,8 +30,8 @@ def test_assess_removes_link_rows_and_adds_bid():
     assert rows[-1]['item']!='WAN Link nas0_2'
 
 def test_master_bid_columns():
-    assert HEADERS[-3:]==['PON BID','BID Length Result','BID Pattern Result']
+    assert HEADERS[32:35]==['PON BID','BID Length Result','BID Pattern Result']
     p={'results':assess_bid('B26C0000006_PPPNNNNN'),'details':{'bid':'B26C0000006_PPPNNNNN'},'overall':'PASS'}
     row=_row(p,Path('/tmp/test_001'),1)
     assert len(row)==len(HEADERS)
-    assert row[-3:]==['B26C0000006_PPPNNNNN','PASS','PASS']
+    assert row[32:35]==['B26C0000006_PPPNNNNN','PASS','PASS']

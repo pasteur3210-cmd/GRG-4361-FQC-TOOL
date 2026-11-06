@@ -1,27 +1,35 @@
-# GRG-4361 FQC Test Tool V1.0.8
+# GRG-4361 FQC Test Tool V1.0.9
 
-**Operating system:** Windows 11 x64 English; **build:** GitHub Actions, Python 3.11 and PyInstaller. End users do not install Python.
+Windows 11 English GUI, Python 3.11 / GitHub Actions Windows build. No Python required on operator PC.
 
-## Operation
-1. Copy the EXE to a writable folder; place records under `Records` alongside EXE.
-2. From `Maintenance > Set Router Credential`, store the router password once per Windows user. Username is fixed `root`. No plaintext password is embedded in source.
-3. Under `Maintenance > Production Range Settings`, set approved SN/MAC ranges and MAC count (default four). Confirm the allocation stride against factory data.
-4. Scan chassis-label SN, MAC and GPON SN. Confirm initial and functional LED checks with the operator.
-5. Connect optical fiber, allow OLT registration, click the read-only test. O5 must appear within 10 seconds. Read Tx Power only after O5; 6.8–7.2 dBm is PASS.
-6. V1.0.8 also establishes Telnet on TCP 23, logs in with the same Windows-protected credential, executes only `labelinfo`, parses `PON BID`, checks 20 characters and consecutive `PPP`.
-7. Check the large colored status banner and Failure / Error Summary. Each failing row shows the expected and actual values. Three WAN Link Status-only test items are removed. WAN configuration items remain.
-8. Each test saves `FQC_Result.xlsx`, `result.json`, `execution.log`, `test.log`, `debug.log` under a timestamped Records folder. `GRG-4361_FQC_Master_Record.xlsx` appends all attempts. Access maintenance tools from the menu.
+## New: Production Data TXT
 
-## Important boundaries
-- Device configuration is not changed; only HTTP reads and Telnet `labelinfo`.
-- Telnet sends the credential over plaintext TCP. Use only on an isolated, authorized factory test LAN; never across the internet.
-- BID failure is FAIL; Telnet connection/parse failure is ERROR. The other device checks and result journal are retained where possible.
-- Prior Master columns are preserved for backward compatibility; three new BID columns are appended. New single-unit reports and GUI no longer include WAN Link Status as independent test items.
-- A fully populated Master workbook cannot be simultaneously opened for writing in Excel. Close it and use Maintenance > Sync Master to retry.
-- Python parser and Telnet protocol receive tests are simulated. GitHub Actions build, physical Telnet login, OLT and US Windows 11 execution are NOT yet verified.
+An editable, **example-only** template is shipped as `GRG-4361_Production_Data_TEMPLATE.txt`. Replace placeholder customer PO, production MO, BOM, production quantity, SN/MAC ranges with QA-approved values **before use**. The sample must not be used to release production units.
 
-## V1.0.8 operator workflow changes
-- Operator is mandatory before initiating LED check and read-only inspection.
-- The large banner now shows FQC PASS, REVIEW, ERROR, or FAIL and the actual/expected value for one failure. Multiple failures show a count; all failures appear in FAILURE / ERROR SUMMARY.
-- The first FAIL/ERROR row is automatically selected and scrolled into view.
-- The run folder identifier appears on the footer; use Maintenance > Open Last Run Logs to access the full path.
+1. Open tool and set **Operator**.
+2. `Maintenance > Import Production Data TXT`, select edited TXT.
+3. Import validates all required fields and confirms MO/BOM/PO/quantity; click Yes to activate.
+4. The active MO / BOM / PO appear on the main screen; IP and FW populate automatically. Manual edits that disagree with imported values prevent starting.
+5. Barcode scans, two-step LED verification, HTTP, Telnet and O5/optics proceed as before.
+6. `Maintenance > View Active Production Data`, `Export Active Production TXT` or `Switch to Manual Settings` as needed.
+7. `Maintenance > Production Range Settings` remains available for manual mode. For manual testing, deactivate an imported lot first; changing the manual range does not change any imported lot.
+
+Never include a router password in TXT. Router credential is set once per Windows account in `Maintenance > Set Router Credential` using Windows Credential Manager.
+
+## Records
+
+All files live beneath `<EXE folder>/Records`. Every test has its own `result.json`, `FQC_Result.xlsx`, `execution.log`, `test.log`, `debug.log` (except early unrecoverable errors, which may not yield an Excel). The EXE folder must be writable.
+
+The Master `GRG-4361_FQC_Master_Record.xlsx` maintains append-only `All Tests` and numeric `Summary`, and adds `Production Info` and `Lot History`. Per-test snapshots bind the production data / SHA-256 to that DUT even after lot changes. The original imported TXT is copied to `Records/Production_Snapshots/<sha256>.txt`. Note: `Lot History` is reconstructed from completed tests; imported-but-unused lots only have their snapshots.
+
+Close the Master workbook in Excel before running or syncing. If locked, run data remains available as individual JSON records. `Maintenance > Sync Master` retries safely without duplicate run IDs.
+
+The import checks SN numeric suffix interval, MAC allocation capacity assuming 4 consecutive MACs per DUT, and valid field formats. **This does not establish the factory's base-MAC allocation stride**. Confirm stride with the official allocation plan before approving use.
+
+## Existing test standards remain in code
+
+PON Tx: 6.8–7.2 dBm inclusive; ONU O5 within 10 seconds; BID length 20 with consecutive PPP; three WAN golden settings; two manual LED steps. The imported TXT only selects a test profile name and version for traceability; it **cannot override** these quality limits. The profile identifier is not an external approval/signature mechanism.
+
+## Build
+
+Unzip the Clean GitHub package (including hidden `.github` directory) to the repository root, open Actions > GRG-4361 FQC Windows Build > Run workflow, and download its V1.0.9 artifact. GitHub and US Windows 11 field validation are required before production release.

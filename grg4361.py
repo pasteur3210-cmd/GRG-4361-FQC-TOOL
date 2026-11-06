@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 from router_oqc.client import RouterClient, RouterError
 
-VERSION = 'V1.0.7'
+VERSION = 'V1.0.9'
 TX_MIN_DBM = 6.8
 TX_MAX_DBM = 7.2
 WAN_GOLDEN = {
