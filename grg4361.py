@@ -5,7 +5,7 @@ import time
 from bs4 import BeautifulSoup
 from router_oqc.client import RouterClient, RouterError
 
-VERSION = 'V1.0.9'
+VERSION = 'V1.0.10'
 TX_MIN_DBM = 6.8
 TX_MAX_DBM = 7.2
 WAN_GOLDEN = {
@@ -56,11 +56,13 @@ def check_tx_power(reading):
     number=float(m.group(1))
     return 'PASS' if TX_MIN_DBM <= number <= TX_MAX_DBM else 'FAIL'
 
-def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',range_config=None,duplicate_result=None,bid=None,bid_error=None):
+def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',range_config=None,duplicate_result=None,bid=None,bid_error=None,lan_status=None,lan_error=None,phone_led=None):
     scans=scans or {};rows=[]
     def add(name,expected,actual,result):rows.append({'item':name,'expected':expected,'actual':actual,'result':result})
     add('LED Initial','Visual LED inspection','Operator: '+led_initial,led_initial)
     add('LED Functional','Phone green blink / PON green solid / Power blue solid at O5','Operator: '+led_functional,led_functional)
+    fxs_result = phone_led if phone_led in ('PASS','FAIL') else ('PASS' if led_functional=='PASS' else 'NOT TESTED')
+    add('FXS','Phone LED green blinking (off-hook); visual check', 'Operator: '+fxs_result, fxs_result if fxs_result in ('PASS','FAIL') else 'SKIP')
     add('Model','GRG-4361',device['model'],'PASS' if device['model']=='GRG-4361' else 'FAIL')
     add('Firmware',expected_firmware or 'Not approved',device['firmware'],('PASS' if device['firmware']==expected_firmware else 'FAIL') if expected_firmware else 'REVIEW')
     sn=scans.get('sn','').strip()
@@ -82,6 +84,16 @@ def assess(device,gpon,pon,scans=None,expected_firmware='',led_initial='PASS',le
         if actual is None: add('WAN '+name,' | '.join(expected),'Missing','FAIL');continue
         value=tuple(actual.get(k,'') for k in ('VLAN ID','Connection Type','Protocol'))
         add('WAN '+name,' | '.join(expected),' | '.join(value),'PASS' if value==expected else 'FAIL')
+    if lan_error:
+        add('LAN1 Link Speed','Up, 10Gb, Full',str(lan_error),'ERROR')
+    elif lan_status is not None:
+        actual = lan_status.get('LAN1')
+        if actual is None:
+            add('LAN1 Link Speed','Up, 10Gb, Full','LAN1 missing','FAIL')
+        else:
+            value=actual.raw_status or 'Not available'
+            good=(actual.link=='UP' and actual.speed_mbps==10000 and actual.duplex=='FULL')
+            add('LAN1 Link Speed','Up, 10Gb, Full',value,'PASS' if good else 'FAIL')
     from bid_telnet import assess_bid
     if bid_error:
         add('PON BID Read','Telnet labelinfo',bid_error,'ERROR')
@@ -113,12 +125,20 @@ class Inspector:
             raise RouterError('READ_FAILED','Not authenticated or HTTP error: '+path)
         return response.text
     def run(self,username,password,scans=None,expected_firmware='',led_initial='PASS',led_functional='PASS',
-            o5_timeout=10,poll_interval=1,range_config=None,duplicate_result=None):
+            o5_timeout=10,poll_interval=1,range_config=None,duplicate_result=None,phone_led=None):
         self.client.login(username,password)
         if self.client.debug:self.client.debug('HTTP read status.asp START')
         device=parse_device(self.read('status.asp'))
         if self.client.debug:self.client.debug('HTTP read status.asp OK')
         gpon=parse_gpon(self.read('gpon.asp'))
+        from router_oqc.lan_port_parser import parse_lan_port_status_html
+        lan_status=None;lan_error=None
+        try:
+            lan_status=parse_lan_port_status_html(self.read('lan_port_status.asp'))
+            if self.client.debug:self.client.debug('LAN1 HTTP status read: '+str(lan_status.get('LAN1')))
+        except Exception as exc:
+            lan_error=f'{type(exc).__name__}: {exc}'
+            if self.client.debug:self.client.debug('LAN1 HTTP status error: '+lan_error)
         if self.client.debug:self.client.debug('HTTP read gpon.asp OK; PON status delayed until after fiber connection')
         # Clock starts at first ONU status poll, after the label/device reads.
         deadline=time.monotonic()+o5_timeout
@@ -140,5 +160,5 @@ class Inspector:
         except BidTelnetError as exc:
             bid_error=str(exc)
             if self.client.debug:self.client.debug('Telnet BID read error: '+bid_error)
-        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional,range_config,duplicate_result,bid,bid_error)
-        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'bid':bid,'bid_error':bid_error,'label_scans':scans or {},'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}
+        overall,rows=assess(device,gpon,pon,scans,expected_firmware,led_initial,led_functional,range_config,duplicate_result,bid,bid_error,lan_status,lan_error,phone_led)
+        return overall,rows,{'device':device,'gpon':gpon,'pon':pon,'bid':bid,'bid_error':bid_error,'label_scans':scans or {},'lan1':lan_status.get('LAN1').to_dict() if lan_status and lan_status.get('LAN1') else {},'lan_error':lan_error,'phone_led':phone_led,'o5_polls':attempts,'o5_timeout_seconds':o5_timeout,'o5_timeout':pon.get('ONU State','').upper()!='O5'}

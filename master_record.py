@@ -17,7 +17,7 @@ HEADERS = [
     'WAN Link nas0_0','WAN Link nas0_1','WAN Link nas0_2',
     'PON Temperature','PON Voltage','PON Tx Power','PON Rx Power',
     'PON Bias Current','PON ONU State','PON ONU ID','PON LOID Status',
-    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result','PON BID','BID Length Result','BID Pattern Result','Production MO','Customer PO','BOM P/N','Customer','Production Qty','Router IP','Production Data ID','Production File SHA-256','Test Profile Version','Station ID','SN Start','SN End','MAC Start','MAC End','MAC Quantity'
+    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result','PON BID','BID Length Result','BID Pattern Result','Production MO','Customer PO','BOM P/N','Customer','Production Qty','Router IP','Production Data ID','Production File SHA-256','Test Profile Version','Station ID','SN Start','SN End','MAC Start','MAC End','MAC Quantity','LAN1 Link Speed','LAN1 Speed (Mbps)','LAN1 Duplex','FXS Result'
 ]
 
 def _make_book():
@@ -64,7 +64,8 @@ def _row(payload, run_dir, number):
         results.get('LED Initial',{}).get('result',''),results.get('LED Functional',{}).get('result',''),
         results.get('PON Tx Power',{}).get('result',''),
         details.get('bid',''),results.get('PON BID Length',{}).get('result',''),results.get('PON BID Pattern',{}).get('result',''),
-        *production_columns(payload)
+        *production_columns(payload),
+        results.get('LAN1 Link Speed',{}).get('result',''),details.get('lan1',{}).get('speed_mbps',''),details.get('lan1',{}).get('duplex',''),results.get('FXS',{}).get('result','')
     ]
 
 def production_columns(payload):

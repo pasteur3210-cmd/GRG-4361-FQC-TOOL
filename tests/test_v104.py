@@ -36,12 +36,13 @@ def test_inspector_polls_until_o5_only_after_scans(monkeypatch):
     def read(path):
         events.append(path)
         if path=='status.asp':return device_html()
+        if path=='lan_port_status.asp':return '<table><tr><td>LAN1 (10GE)</td><td>Up, 10Gb, Full</td></tr></table>'
         if path=='gpon.asp':return '<tr><th>Serial Number</th><td>CMTD0CFFC101</td></tr>'
         state='O1' if events.count('status_pon.asp')==1 else 'O5'
         return '<table>'+''.join(f'<tr><th>{k}</th><td>{v}</td></tr>' for k,v in [('Temperature','35 C'),('Voltage','3 V'),('Tx Power','7.0 dBm' if state=='O5' else 'No signal'),('Rx Power','-18 dBm'),('Bias Current','12 mA'),('ONU State',state)])+'</table>'
     client.read=read
     overall,rows,details=client.run('root','test',{'sn':'12345678901234567890','mac':'64680CFFC101','gpon':'CMTD0CFFC101'},'MTA-1.0.14',poll_interval=0)
-    assert events==['status.asp','gpon.asp','status_pon.asp','status_pon.asp']
+    assert events==['status.asp','gpon.asp','lan_port_status.asp','status_pon.asp','status_pon.asp']
     assert details['pon']['ONU State']=='O5'
     assert overall=='REVIEW'
 

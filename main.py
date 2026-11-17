@@ -19,7 +19,7 @@ from credential_store import get_password, set_password
 from tkinter import simpledialog
 from production_data import import_and_activate, active_production, range_values, to_txt
 
-APP='GRG-4361 FQC Test Tool V1.0.9'
+APP='GRG-4361 FQC Test Tool V1.0.10'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -46,7 +46,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.9',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.10',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width
@@ -230,8 +230,17 @@ class App:
         result={'value':None}
         ttk.Label(dialog,text=title,font=('Arial',15,'bold'),padding=15).pack()
         ttk.Label(dialog,text=instructions,justify='left',padding=12,font=('Arial',11)).pack()
+        phone_choice=None
+        if 'FUNCTIONAL LED CHECK' in title:
+            ttk.Label(dialog,text='Phone LED / FXS (off-hook):',font=('Arial',11,'bold')).pack(anchor='w',padx=15)
+            phone_choice=tk.StringVar(value='PASS')
+            options=ttk.Frame(dialog);options.pack(anchor='w',padx=15)
+            ttk.Radiobutton(options,text='PASS - Green blinking',variable=phone_choice,value='PASS').pack(side='left',padx=5)
+            ttk.Radiobutton(options,text='FAIL',variable=phone_choice,value='FAIL').pack(side='left',padx=5)
         buttons=ttk.Frame(dialog,padding=12);buttons.pack()
-        def choose(value): result['value']=value;dialog.destroy()
+        def choose(value):
+            if phone_choice is not None:self.phone_led_result=phone_choice.get() if value=='PASS' else ('FAIL' if value=='FAIL' and phone_choice.get()=='FAIL' else 'NOT TESTED')
+            result['value']=value;dialog.destroy()
         good=ttk.Button(buttons,text='PASS',command=lambda:choose('PASS'),width=17)
         good.pack(side='left',padx=12)
         ttk.Button(buttons,text='FAIL',command=lambda:choose('FAIL'),width=17).pack(side='left',padx=12)
@@ -255,6 +264,7 @@ class App:
         scans={'sn':self.sn.get().strip(),'mac':self.label_mac.get().strip(),'gpon':self.label_gpon.get().strip()}
         if not all(scans.values()):
             messagebox.showwarning('Missing scans','Scan SN, MAC and GPON SN before starting.');return
+        self.phone_led_result='NOT TESTED'
         initial=self.led_confirm('STEP 1 / 2 - INITIAL LED CHECK',
             'Before connecting fiber (DUT boot completed):\n'
             'Power: green ON\nPhone: OFF\n10G LAN: blue ON (per qualified link)\nPON: red blinking\n\n'
@@ -275,9 +285,9 @@ class App:
         self.set_failure_summary([])
         import copy
         active=copy.deepcopy(self.production_info)
-        values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional,active)
+        values=(self.host.get().strip(),self.user.get().strip(),password,scans,self.fw.get().strip(),self.operator.get().strip(),initial,functional,active,self.phone_led_result)
         threading.Thread(target=self.work,args=values,daemon=True).start()
-    def work(self,host,user,password,scans,fw,operator,initial,functional,production=None):
+    def work(self,host,user,password,scans,fw,operator,initial,functional,production=None,phone_led=None):
         stamp=dt.datetime.now().strftime('%Y%m%d_%H%M%S_%f');directory=ROOT/stamp;client=None
         try:logger=make_logger(directory)
         except OSError as exc:
@@ -289,7 +299,8 @@ class App:
             if initial!='PASS' or functional!='PASS':
                 rows=[{'item':'LED Initial','expected':'Initial LED visual check','actual':initial,'result':initial},
                       {'item':'LED Functional','expected':'Phone green blink / PON green solid / Power blue solid at O5','actual':functional,
-                       'result':functional if functional=='FAIL' else 'INFO'}]
+                       'result':functional if functional=='FAIL' else 'INFO'},
+                      {'item':'FXS','expected':'Phone LED green blinking (off-hook)','actual':'Operator: '+str(phone_led or 'NOT TESTED'),'result':'FAIL' if phone_led=='FAIL' else 'SKIP'}]
                 overall='FAIL';details={'label_scans':scans,'led_initial':initial,'led_functional':functional}
                 logger.info('LED check FAIL; HTTP automatic testing SKIPPED')
             else:
@@ -302,9 +313,9 @@ class App:
                 except Exception as exc:
                     raise ValueError('Invalid approved production range: '+str(exc)) from exc
                 dupe=check_duplicate(ROOT,scans['sn'],scans['mac'])
-                overall,rows,details=client.run(user,password,scans,fw,initial,functional,range_config=config,duplicate_result=dupe)
+                overall,rows,details=client.run(user,password,scans,fw,initial,functional,range_config=config,duplicate_result=dupe,phone_led=phone_led)
                 details['production_range']=config or 'NOT CONFIGURED'
-            details['led_initial']=initial;details['led_functional']=functional
+            details['led_initial']=initial;details['led_functional']=functional;details['phone_led']=phone_led
             details['production_data']=production
             if production:logger.info('PRODUCTION MO=%s sha256=%s',production['lot_id'],production['sha256'])
             for row in rows:logger.info('TEST %s | expected=%s | actual=%s | result=%s',row['item'],row['expected'],row['actual'],row['result'])

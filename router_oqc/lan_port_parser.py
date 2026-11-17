@@ -49,28 +49,15 @@ def parse_lan_port_status_html(html: str) -> dict[str, LanPortStatus]:
             result[port] = LanPortStatus(port=port, link="DOWN", raw_status=raw)
             continue
 
-        match = re.search(
-            r"\bUP\s*,\s*(\d+)\s*MB\s*,\s*(FULL|HALF)\b",
-            raw,
-            re.IGNORECASE,
-        )
+        match = re.search(r"\bUP\s*,\s*(\d+(?:\.\d+)?)\s*(G(?:B|BPS)?|MB(?:PS)?)\s*,\s*(FULL|HALF)\b",raw,re.IGNORECASE)
         if not match:
-            result[port] = LanPortStatus(
-                port=port,
-                link="UNKNOWN",
-                raw_status=raw,
-            )
+            result[port] = LanPortStatus(port=port,link="DOWN" if re.search(r"\bDOWN\b",raw,re.I) else "UNKNOWN",raw_status=raw)
             continue
+        magnitude=float(match.group(1));unit=match.group(2).upper()
+        speed=round(magnitude*(1000 if unit.startswith('G') else 1))
+        result[port]=LanPortStatus(port=port,link="UP",speed_mbps=speed,duplex=match.group(3).upper(),raw_status=raw)
 
-        result[port] = LanPortStatus(
-            port=port,
-            link="UP",
-            speed_mbps=int(match.group(1)),
-            duplex=match.group(2).upper(),
-            raw_status=raw,
-        )
-
-    missing = [f"LAN{i}" for i in range(1, 5) if f"LAN{i}" not in result]
+    missing = ["LAN1"] if "LAN1" not in result else []
     if missing:
         raise LanPortParseError("LAN欄位缺失：" + ", ".join(missing))
     return result
