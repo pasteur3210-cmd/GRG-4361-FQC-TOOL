@@ -43,5 +43,6 @@ def test_master_lots_history_and_numeric_summary(tmp_path):
     assert wb['Summary']['B4'].value==1
     assert wb['Lot History']['A2'].value=='MO-EXAMPLE-001'
     assert wb['Lot History']['J2'].value==2
-    assert wb['All Tests']['AJ2'].value=='MO-EXAMPLE-001'
+    assert wb['Production Info']['B3'].value=='MO-EXAMPLE-001'
+    assert 'Production MO' not in [c.value for c in wb['All Tests'][1]]
     assert sync_master(tmp_path)==0

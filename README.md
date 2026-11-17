@@ -1,3 +1,6 @@
+GRG-4361 FQC Test Tool V1.0.11
+================================
+
 # GRG-4361 FQC Test Tool V1.0.9
 
 Windows 11 English GUI, Python 3.11 / GitHub Actions Windows build. No Python required on operator PC.
@@ -34,8 +37,10 @@ PON Tx: 6.8–7.2 dBm inclusive; ONU O5 within 10 seconds; BID length 20 with co
 
 Unzip the Clean GitHub package (including hidden `.github` directory) to the repository root, open Actions > GRG-4361 FQC Windows Build > Run workflow, and download its V1.0.9 artifact. GitHub and US Windows 11 field validation are required before production release.
 
-### V1.0.10: LAN1 and FXS
+### V1.0.11: LAN1 and FXS
 - Connect a verified **10GbE** test endpoint to LAN1; the DUT's negotiated link must read `Up, 10Gb, Full` at `GET /lan_port_status.asp`. A 2.5GbE test endpoint will cause LAN1 FAIL even if the DUT is functional. Do not click Apply; software performs a read-only GET.
 - Step 2 Functional LED dialog now has a **Phone LED / FXS** visual PASS/FAIL radio choice. Select based on Phone LED blinking green when the handset is lifted, then explicitly confirm the overall functional LED stage. FXS is a visual off-hook indicator test, **not** a voice call/audio quality test.
 - `Records/GRG-4361_FQC_Master_Record.xlsx` adds LAN1 result, negotiated speed (Mbps), duplex and FXS result at the end; prior records remain unchanged. Individual run reports and logs also include them.
 - First-run device credentials remain configured via Maintenance; never place passwords in Production Data TXT.
+
+V1.0.11: All Tests omits 15 detailed production setting columns that were often empty in Manual mode. Full imported lot settings remain available in Production Info and Lot History. Existing Master workbooks are migrated by header names on the next successful synchronization; back up your Records folder before installing the new version.

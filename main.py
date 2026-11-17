@@ -19,7 +19,7 @@ from credential_store import get_password, set_password
 from tkinter import simpledialog
 from production_data import import_and_activate, active_production, range_values, to_txt
 
-APP='GRG-4361 FQC Test Tool V1.0.10'
+APP='GRG-4361 FQC Test Tool V1.0.11'
 
 def application_directory():
     """Return EXE folder in frozen mode, project folder for source execution."""
@@ -46,7 +46,7 @@ def save_record(directory,overall,rows,details,sn="",operator="",scans=None):
         f.write(f'{now} Overall: {overall}\n')
         for row in rows: f.write(f"{row['item']} | {row['expected']} | {row['actual']} | {row['result']}\n")
     wb=Workbook(); ws=wb.active; ws.title='FQC Result'
-    ws.append(['GRG-4361 FQC Test Tool V1.0.10',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
+    ws.append(['GRG-4361 FQC Test Tool V1.0.11',now,overall]);ws.append(['Test Item','Expected','Actual','Result'])
     for row in rows:ws.append([row[k] for k in ('item','expected','actual','result')])
     ws.freeze_panes='A3';ws.auto_filter.ref=f'A2:D{ws.max_row}'
     for col,width in {'A':31,'B':44,'C':41,'D':17}.items():ws.column_dimensions[col].width=width

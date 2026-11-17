@@ -17,7 +17,7 @@ HEADERS = [
     'WAN Link nas0_0','WAN Link nas0_1','WAN Link nas0_2',
     'PON Temperature','PON Voltage','PON Tx Power','PON Rx Power',
     'PON Bias Current','PON ONU State','PON ONU ID','PON LOID Status',
-    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result','PON BID','BID Length Result','BID Pattern Result','Production MO','Customer PO','BOM P/N','Customer','Production Qty','Router IP','Production Data ID','Production File SHA-256','Test Profile Version','Station ID','SN Start','SN End','MAC Start','MAC End','MAC Quantity','LAN1 Link Speed','LAN1 Speed (Mbps)','LAN1 Duplex','FXS Result'
+    'Overall Result','Failure Items','Review Items','Record Path', 'Label MAC','Label GPON SN','LED Initial','LED Functional','Tx Power Result','PON BID','BID Length Result','BID Pattern Result','LAN1 Link Speed','LAN1 Speed (Mbps)','LAN1 Duplex','FXS Result'
 ]
 
 def _make_book():
@@ -64,7 +64,6 @@ def _row(payload, run_dir, number):
         results.get('LED Initial',{}).get('result',''),results.get('LED Functional',{}).get('result',''),
         results.get('PON Tx Power',{}).get('result',''),
         details.get('bid',''),results.get('PON BID Length',{}).get('result',''),results.get('PON BID Pattern',{}).get('result',''),
-        *production_columns(payload),
         results.get('LAN1 Link Speed',{}).get('result',''),details.get('lan1',{}).get('speed_mbps',''),details.get('lan1',{}).get('duplex',''),results.get('FXS',{}).get('result','')
     ]
 
@@ -75,44 +74,66 @@ def production_columns(payload):
     return [g.get('PRODUCTION_MO',''),g.get('CUSTOMER_PO',''),g.get('BOM_PN',''),g.get('CUSTOMER',''),
             g.get('PRODUCTION_QTY',''),v.get('ROUTER_IP',''),p.get('lot_id',''),p.get('sha256',''),t.get('PROFILE_VERSION',''),'',d.get('SN_RANGE',{}).get('SN_START',''),d.get('SN_RANGE',{}).get('SN_END',''),d.get('MAC_RANGE',{}).get('MAC_START',''),d.get('MAC_RANGE',{}).get('MAC_END',''),d.get('MAC_RANGE',{}).get('MAC_QUANTITY','')]
 
-def update_production_sheets(wb,ws):
-    headers=list(next(ws.iter_rows(min_row=1,max_row=1,values_only=True)))
-    idx={str(x):i for i,x in enumerate(headers)}
-    lots={};lot_examples={}
-    for row in ws.iter_rows(min_row=2,values_only=True):
-        def get(k):return row[idx[k]] if k in idx and idx[k]<len(row) else ''
-        mo=get('Production MO')
-        if mo:
-            digest=get('Production File SHA-256') or ''
-            key=(mo,digest)
-            if key not in lots:lots[key]={'mo':mo,'po':get('Customer PO'),'bom':get('BOM P/N'),'customer':get('Customer'),
-              'qty':get('Production Qty'),'ip':get('Router IP'),'hash':digest,'profile':get('Test Profile Version'),'first':get('Test Time (ISO 8601)'),'tests':0,'sn_start':get('SN Start'),'sn_end':get('SN End'),'mac_start':get('MAC Start'),'mac_end':get('MAC End'),'mac_qty':get('MAC Quantity')}
-            lots[key]['tests']+=1
-            lot_examples[key]=get('Test ID')
-    current=wb['Production Info'] if 'Production Info' in wb else wb.create_sheet('Production Info')
-    current.delete_rows(1,current.max_row);current.append(['Production lots in Master','Count'])
-    current.append(['Distinct Lot Snapshots',len(lots)])
-    for p in lots.values():
-        current.append([p['mo']+' / '+p['bom'],p['tests']])
-        for label,key in [('Customer PO','po'),('BOM P/N','bom'),('Customer','customer'),('Production Quantity','qty'),('Router IP','ip'),('Profile Version','profile'),('File SHA-256','hash'),('SN Start','sn_start'),('SN End','sn_end'),('MAC Start','mac_start'),('MAC End','mac_end'),('MAC Quantity','mac_qty')]:
-            current.append([label,p[key]])
-    hist=wb['Lot History'] if 'Lot History' in wb else wb.create_sheet('Lot History')
-    hist.delete_rows(1,hist.max_row)
-    hist.append(['Production MO','Customer PO','BOM P/N','Customer','Production Quantity','Router IP','Profile Version','File SHA-256','First Test Time','Test Attempts'])
-    for p in lots.values():hist.append([p[k] for k in ('mo','po','bom','customer','qty','ip','profile','hash','first','tests')])
-    for key,p in lots.items():
-        current.append(['LOT RANGE DETAILS: '+p['mo'],''])
-        # Historical range values are preserved in each run's result.json; references in All Tests identify that run.
-        current.append(['Source Run ID',lot_examples[key]])
-    for sheet in (current,hist):
-        sheet.freeze_panes='A2'
-        for cell in sheet[1]:cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='17365D')
-        for col in range(1,sheet.max_column+1):sheet.column_dimensions[get_column_letter(col)].width=30 if col!=8 else 68
-    # Write numeric summary values to avoid empty formula caches in non-Excel viewers.
+def update_production_sheets(wb, ws, root=None):
+    """Keep production details in their own tabs rather than 15 mostly empty test columns."""
+    lots = {}
+    if root is not None:
+        for run_dir in sorted(Path(root).iterdir()):
+            source = run_dir / 'result.json'
+            if not source.is_file():
+                continue
+            try:
+                payload = json.loads(source.read_text(encoding='utf-8'))
+                p = payload.get('production_data') or (payload.get('details') or {}).get('production_data')
+                if not p:
+                    continue
+                d = p.get('settings') or {}
+                g = d.get('GENERAL') or {}
+                mo = g.get('PRODUCTION_MO', '')
+                if not mo:
+                    continue
+                key = (mo, p.get('sha256', ''))
+                if key not in lots:
+                    lots[key] = dict(data=d, metadata=p, first=payload.get('timestamp', ''), count=0)
+                lots[key]['count'] += 1
+            except (OSError, ValueError, TypeError, AttributeError):
+                continue
+    current = wb['Production Info'] if 'Production Info' in wb else wb.create_sheet('Production Info')
+    current.delete_rows(1, current.max_row)
+    current.append(['Production Lot / Setting', 'Value'])
+    current.append(['Distinct Lot Snapshots', len(lots)])
+    hist = wb['Lot History'] if 'Lot History' in wb else wb.create_sheet('Lot History')
+    hist.delete_rows(1, hist.max_row)
+    hist.append(['Production MO', 'Customer PO', 'BOM P/N', 'Customer', 'Production Quantity', 'Router IP', 'Profile Version', 'File SHA-256', 'First Test Time', 'Test Attempts'])
+    for (mo, sha), lot in lots.items():
+        d = lot['data']; g=d.get('GENERAL') or {}; dev=d.get('DEVICE') or {}; profile=d.get('TEST_PROFILE') or {}
+        current.append(['Production MO', mo])
+        for group, keys in [('GENERAL', ('CUSTOMER','CUSTOMER_PO','PRODUCTION_MO','BOM_PN','PRODUCTION_QTY')),
+                            ('DEVICE', ('ROUTER_IP','APPROVED_FW')),
+                            ('SN_RANGE', ('SN_START','SN_END')),
+                            ('MAC_RANGE', ('MAC_START','MAC_END','MAC_QUANTITY')),
+                            ('TEST_PROFILE', ('PROFILE_NAME','PROFILE_VERSION'))]:
+            for field in keys:
+                current.append([group + '.' + field, (d.get(group) or {}).get(field, '')])
+        current.append(['Production Data ID', lot['metadata'].get('lot_id','')])
+        current.append(['SHA-256', sha])
+        current.append(['Test Attempts', lot['count']])
+        current.append(['', ''])
+        hist.append([mo,g.get('CUSTOMER_PO',''),g.get('BOM_PN',''),g.get('CUSTOMER',''),g.get('PRODUCTION_QTY',''),dev.get('ROUTER_IP',''),profile.get('PROFILE_VERSION',''),sha,lot['first'],lot['count']])
+    for sheet in (current, hist):
+        sheet.freeze_panes = 'A2'
+        for cell in sheet[1]:
+            cell.font=Font(bold=True,color='FFFFFF')
+            cell.fill=PatternFill('solid',fgColor='17365D')
+        for col in range(1,sheet.max_column+1):
+            sheet.column_dimensions[get_column_letter(col)].width=60 if sheet==current and col==1 else (68 if sheet==hist and col==8 else 30)
     summary=wb['Summary'] if 'Summary' in wb else wb.create_sheet('Summary')
-    outcomes=[str(row[idx['Overall Result']] or '') for row in ws.iter_rows(min_row=2,values_only=True)]
+    headers=list(next(ws.iter_rows(min_row=1,max_row=1,values_only=True)))
+    ix=headers.index('Overall Result')
+    outcomes=[str(row[ix] or '') for row in ws.iter_rows(min_row=2,values_only=True)]
     for n,(label,value) in enumerate([('Total Test Attempts',len(outcomes))]+[(k,outcomes.count(k)) for k in ('PASS','FAIL','REVIEW','ERROR')],2):
         summary.cell(n,1,label);summary.cell(n,2,value)
+
 
 def sync_master(root: Path, timeout=3):
     """Rebuild/append missing runs. Idempotent via immutable run ID; preserve pending on lock/error."""
@@ -122,9 +143,22 @@ def sync_master(root: Path, timeout=3):
     with lock:
         wb=load_workbook(master) if master.exists() else _make_book()
         ws=wb['All Tests']
-        # Compatible upgrade for existing V1.0.3 Master workbook.
-        for i,header in enumerate(HEADERS,1):
-            if ws.cell(1,i).value != header: ws.cell(1,i,header)
+        # Migrate old wide All Tests by header name; do not lose any test history.
+        old_headers=[c.value for c in ws[1]]
+        if old_headers != HEADERS:
+            old_records=list(ws.iter_rows(min_row=2,values_only=True))
+            old_index={header:i for i,header in enumerate(old_headers) if header is not None}
+            ws.delete_rows(1,ws.max_row)
+            ws.append(HEADERS)
+            for old_row in old_records:
+                if not any(v is not None for v in old_row):
+                    continue
+                ws.append([old_row[old_index[h]] if h in old_index and old_index[h]<len(old_row) else None for h in HEADERS])
+            ws.auto_filter.ref=f'A1:{get_column_letter(len(HEADERS))}{ws.max_row}'
+            for col in range(1,max(len(old_headers),len(HEADERS))+1):
+                letter=get_column_letter(col)
+                ws.column_dimensions[letter].width=min(37,max(15,len(HEADERS[col-1])+3)) if col<=len(HEADERS) else 8
+
         existing={str(ws.cell(i,1).value) for i in range(2,ws.max_row+1)}
         counts={}
         for i in range(2,ws.max_row+1):
@@ -144,9 +178,9 @@ def sync_master(root: Path, timeout=3):
                 existing.add(run_dir.name);added+=1
             except (OSError,ValueError,KeyError,TypeError,json.JSONDecodeError):
                 continue  # An incomplete per-run journal is not a valid Master Record entry.
-        if not added and master.exists():return 0
+        if not added and master.exists() and old_headers == HEADERS:return 0
         ws.auto_filter.ref=f'A1:{get_column_letter(len(HEADERS))}{ws.max_row}'
-        update_production_sheets(wb,ws)
+        update_production_sheets(wb,ws,root)
         temp=None
         try:
             with NamedTemporaryFile(dir=root,prefix='.fqc_master_',suffix='.xlsx',delete=False) as f:
